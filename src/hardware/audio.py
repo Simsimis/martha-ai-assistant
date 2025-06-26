@@ -1,104 +1,63 @@
-# src/hardware/audio.py
-# This module will contain the AudioHandler class, responsible for all
-# audio interactions, including recording from the ReSpeaker and playing audio.
+import subprocess
+import os
+from pathlib import Path
 
-import pyaudio
-import wave
-import time
-from src import config  # Import our configuration
+# --- Configuration ---
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+PIPER_EXE_PATH = PROJECT_ROOT / "vendor" / "piper" / "piper.exe"
+MODEL_PATH = PROJECT_ROOT / "vendor" / "piper" / "el_GR-rapunzelina-low.onnx"
+OUTPUT_WAV_PATH = PROJECT_ROOT / "output.wav"
 
-class AudioHandler:
-    """Handles all audio input and output operations."""
+def speak(text_to_speak: str):
+    """
+    Μετατρέπει ένα κείμενο σε ομιλία χρησιμοποιώντας το piper.exe και το αναπαράγει.
+    """
+    if not PIPER_EXE_PATH.exists():
+        print(f"Σφάλμα: Το αρχείο piper.exe δεν βρέθηκε στο {PIPER_EXE_PATH}")
+        return
 
-    def __init__(self):
-        """
-        Initializes the PyAudio instance and gets device indices from the config.
-        """
-        self.p = pyaudio.PyAudio()
-        self.input_device_index = config.AUDIO_INPUT_DEVICE_INDEX
-        self.output_device_index = config.AUDIO_OUTPUT_DEVICE_INDEX
+    if not MODEL_PATH.exists():
+        print(f"Σφάλμα: Το μοντέλο φωνής .onnx δεν βρέθηκε στο {MODEL_PATH}")
+        return
+
+    print(f"Παρασκευάζεται ομιλία για το κείμενο: '{text_to_speak}'...")
+
+    command = [
+        str(PIPER_EXE_PATH),
+        "--model", str(MODEL_PATH),
+        "--output_file", str(OUTPUT_WAV_PATH),
+    ]
+
+    try:
+        # Τρέχουμε το piper.exe, περνώντας το κείμενο ως είσοδο (input)
+        # Αυτή είναι η σωστή μέθοδος που λύνει το πρόβλημα!
+        subprocess.run(
+            command,
+            input=text_to_speak,
+            encoding="utf-8",
+            check=True,
+            capture_output=True,
+            text=True
+        )
+
+        print("Η ομιλία δημιουργήθηκε. Ξεκινά η αναπαραγωγή...")
+
+        # Χρησιμοποιούμε το playsound που ήδη εγκαταστήσαμε
+        from playsound import playsound
+        playsound(str(OUTPUT_WAV_PATH))
         
-        # Audio stream parameters
-        self.FORMAT = pyaudio.paInt16
-        self.CHANNELS = 1
-        self.RATE = 16000  # 16kHz is standard for voice recognition
-        self.CHUNK = 1024
-        
-        print("AudioHandler initialized.")
-        if self.input_device_index is None:
-            print("  - Input device index is not set. Recording will use default device.")
-        else:
-            print(f"  - Using input device index: {self.input_device_index}")
+        print("Η αναπαραγωγή ολοκληρώθηκε.")
 
-    def __del__(self):
-        """
-        Ensures that the PyAudio instance is terminated when the object is deleted.
-        """
-        print("Terminating PyAudio instance.")
-        self.p.terminate()
+    except FileNotFoundError:
+        print(f"Σφάλμα: Δεν ήταν δυνατή η εκτέλεση του {PIPER_EXE_PATH}.")
+    except subprocess.CalledProcessError as e:
+        print(f"Σφάλμα κατά την εκτέλεση του Piper: {e}")
+        print(f"Error output:\n{e.stderr}")
+    except Exception as e:
+        print(f"Προέκυψε ένα απρόσμενο σφάλμα: {e}")
+    finally:
+        if os.path.exists(OUTPUT_WAV_PATH):
+            os.remove(OUTPUT_WAV_PATH)
 
-    # --- We will add more methods here, like record() and play(), in the next steps ---
-    def record_audio(self, duration=5, output_filename="command.wav"):
-        """Records audio from the input device for a specified duration."""
-        
-        if self.input_device_index is None:
-            print("ERROR: No input device index is set. Cannot record.")
-            return False
-
-        print(f"\n* Preparing to record for {duration} seconds...")
-        
-        stream = self.p.open(format=self.FORMAT,
-                             channels=self.CHANNELS,
-                             rate=self.RATE,
-                             input=True,
-                             frames_per_buffer=self.CHUNK,
-                             input_device_index=self.input_device_index)
-
-        print("* Recording...")
-        
-        frames = []
-        for _ in range(0, int(self.RATE / self.CHUNK * duration)):
-            data = stream.read(self.CHUNK)
-            frames.append(data)
-            
-        print("* Finished recording.")
-
-        # Stop and close the stream
-        stream.stop_stream()
-        stream.close()
-
-        # Save the recorded data as a WAV file
-        with wave.open(output_filename, 'wb') as wf:
-            wf.setnchannels(self.CHANNELS)
-            wf.setsampwidth(self.p.get_sample_size(self.FORMAT))
-            wf.setframerate(self.RATE)
-            wf.writeframes(b''.join(frames))
-        
-        print(f"* Audio saved to {output_filename}")
-        return True
-
-    def speak(self, text):
-        """
-        Speaks the given text using the pyttsx3 library (offline and free).
-        """
-        try:
-            # Lazy import pyttsx3 only when needed
-            import pyttsx3
-            engine = pyttsx3.init()
-            print(f"\nMartha says: '{text}'")
-            engine.say(text)
-            engine.runAndWait()
-            return True
-        except Exception as e:
-            print(f"An error occurred in pyttsx3: {e}")
-            return False
-
-# This part is just for testing if this file works on its own
-if __name__ == '__main__':
-    print("Running a test of the AudioHandler...")
-    handler = AudioHandler()
-    # === NEW TEST CODE for FREE SPEECH ===
-    handler.speak("Hello, World! I can speak, and it costs nothing! Ha ha ha.")
-    handler.speak("Αυτό είναι το δεύτερο τεστ, στα Ελληνικά!")
-    # ======================================
-    del handler
+if __name__ == "__main__":
+    speak("Επιτέλους. Αυτό πήρε περισσότερο από όσο έπρεπε. Ας ελπίσουμε ότι τώρα με ακούς.")
