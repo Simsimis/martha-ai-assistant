@@ -1,0 +1,6 @@
+# General settings for Martha
+
+WAKE_WORD = "martha"
+AUDIO_INPUT_DEVICE_INDEX = 1
+AUDIO_OUTPUT_DEVICE_INDEX = 4
+USE_ONLINE_MODE = False
